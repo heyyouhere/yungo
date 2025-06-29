@@ -31,6 +31,8 @@ func (s *Status) Display(){
 	fmt.Printf("    Command : %s\n\n", s.Command)
 }
 
+
+// TODO this is bad abstraction, rearrange
 type Dock struct{
 	Host string
 	Port string
@@ -96,8 +98,47 @@ func (d *Dock) GetStatus(remoteClient *ssh.Client, socketPath string) ([]Status,
 	return statuses, nil
 }
 
+func (d *Dock) GetLogs(remoteClient *ssh.Client, socketPath string, container_id string) error{
+	// TODO: this function does not return logs, since the endpoint writes as
+	// Content-Type: application/vnd.docker.multiplexed-stream
+	// And I dont know how to handle it in golang
+
+	remoteConn, err := remoteClient.Dial("unix", socketPath)
+	defer remoteConn.Close()
+	request := fmt.Sprintf("GET /containers/%s/logs?stdout=true&tail=40 HTTP/1.1\r\nHost: localhost\r\n\r\n", container_id)
+	_, err = remoteConn.Write([]byte(request))
+	if err != nil {
+		return err
+	}
+	buf := make([]byte, 1024*1024)
+	n, err := remoteConn.Read(buf)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%s\n", string(buf[:n]))
+
+	fmt.Printf("Reading chunk-size\n")
+	n1, err := remoteConn.Read(buf)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%s\n", string(buf[n:n1]))
+	os.Exit(0)
+
+	// res, err := http.ReadResponse(bufio.NewReader(buffer), nil)
+	// if err != nil{
+	// 	return err
+	// }
+	// bodyBuff := make([]byte, 1024*1024)
+	// res.Body.Read(bodyBuff)
+	// fmt.Printf("%s\n", string(bodyBuff))
+	return nil
+}
+
+
 
 func main() {
+	// https://docs.docker.com/reference/api/engine/version/v1.39/
 	if len(os.Args) < 2{
 		fmt.Printf("No private key path provided.\n")
 		fmt.Printf("Usage:\n%s [path_to_private_key]\n", os.Args[0])
@@ -131,8 +172,9 @@ func main() {
 			fmt.Printf("Could not GetStatus of Dock %s, %s\n", dock.Host, err)
 			continue
 		}
-		for _, status := range statuses{
-			status.Display()
+		for _, s := range statuses{
+			s.Display()
+			// dock.GetLogs(client, remoteSocketPath, s.Id)
 		}
 	}
 }

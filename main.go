@@ -4,13 +4,13 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"sort"
 	"strings"
-	"flag"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -71,7 +71,6 @@ type Dock struct{
 }
 
 
-//TODO: make uptime requests also
 func CreateDock(dockInfo DockInfo, privateKeyPath string) (*Dock, error){
 	key, err := os.ReadFile(privateKeyPath)
 	if err != nil {
@@ -98,6 +97,19 @@ func CreateDock(dockInfo DockInfo, privateKeyPath string) (*Dock, error){
 	return &Dock{dockInfo, remoteClient}, nil
 }
 
+func (d *Dock) GetUptime() string{
+	session, err := d.Client.NewSession()
+	if err != nil {
+		fmt.Printf("failed to create session: %v", err)
+	}
+	defer session.Close()
+
+	var b []byte
+	if b, err = session.CombinedOutput("uptime"); err != nil {
+		fmt.Printf("failed to run: %v", err)
+	}
+	return string(b)
+}
 
 func (d *Dock) GetStatus(socketPath string) ([]Status, error){
 	remoteConn, err := d.Client.Dial("unix", socketPath)
@@ -220,7 +232,8 @@ func main() {
 		if len(target) > 0{
 			if target != dock.DockInfo.Host{ continue }
 		}
-		fmt.Printf("Dock %s@%s\n", dock.DockInfo.Username, dock.DockInfo.Host)
+		dock_uptime := dock.GetUptime()
+		fmt.Printf("Dock %s@%s %s\n", dock.DockInfo.Username, dock.DockInfo.Host, dock_uptime)
 		statuses, err := dock.GetStatus(remoteSocketPath)
 		if err != nil{
 			fmt.Printf("Could not GetStatus of Dock %s, %s\n", dock.DockInfo.Host, err)

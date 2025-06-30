@@ -1,4 +1,4 @@
-# Yongo
+# Yungo
 Simple docker monitoring tool.
 
 # Goals

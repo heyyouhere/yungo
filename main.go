@@ -157,15 +157,20 @@ func (d *Dock) GetLogs(remoteClient *ssh.Client, socketPath string, container_id
 
 
 func main() {
+	home := os.Getenv("HOME")
 	var (
 		showStopped = flag.Bool("s", false, "Display stopped containers")
-		privateKey = flag.String("k", "", "Path to private key")
+		privateKey = flag.String("k", fmt.Sprintf("%s/.ssh/id_rsa", home), "Path to private key")
 	)
+	var target string
+	flag.StringVar(&target, "t",  "", "Show only needed targets container")
+	flag.StringVar(&target, "target",  "", "Show only needed targets container")
+
 	flag.Parse()
 	privateKeyPath := *privateKey
 	if len(privateKeyPath) == 0{
 		fmt.Printf("No private key path provided.\n")
-		fmt.Printf("Usage:\n%s [OPTIONS] -k PATH/TO/PRIVATE_KEY\n", os.Args[0])
+		flag.Usage()
 		os.Exit(1)
 	}
 	hostsFile, err := os.Open("hosts")
@@ -182,9 +187,13 @@ func main() {
 		fmt.Printf("Could not unmarshal, %s", err)
 	}
 
+
 	remoteSocketPath := "/var/run/docker.sock"
 	for _, dock := range docks{
-		fmt.Printf("--------------------------------------------------\n")
+		if len(target) > 0{
+			if target != dock.Host{ continue }
+		}
+
 		fmt.Printf("Dock %s@%s\n", dock.Username, dock.Host)
 		client, err := dock.Connect(privateKeyPath)
 		defer client.Close()
@@ -204,11 +213,12 @@ func main() {
 			if statuses[j].State == "running"{
 				return false
 			}
-			return true
+			return len(statuses[i].Names[0]) > len(statuses[i].Names[0])
 		})
 		for _, s := range statuses{
 			s.Display(*showStopped)
 			// dock.GetLogs(client, remoteSocketPath, s.Id)
 		}
+		fmt.Printf("--------------------------------------------------\n")
 	}
 }

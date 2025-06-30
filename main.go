@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"sort"
+	"strings"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -23,12 +25,28 @@ type Status struct{
 
 }
 
-func (s *Status) Display(){
-	fmt.Printf("    Name    : %s\n",   s.Names[0])
-	fmt.Printf("    Image   : %s\n",   s.Image)
-	fmt.Printf("    Status  : %s\n",   s.Status)
-	fmt.Printf("    State   : %s\n",   s.State)
-	fmt.Printf("    Command : %s\n\n", s.Command)
+func (s *Status) Display(showStopped bool){
+	var sb strings.Builder
+	const (
+		red   = "\033[31m" // Red color
+		green = "\033[32m" // Green color
+		circle = "●"
+		reset = "\033[0m"  // Reset to default color
+	)
+	if s.State == "running"{
+		sb.WriteString(green)
+	} else {
+		if !showStopped{
+			return
+		}
+		sb.WriteString(red)
+	}
+	sb.WriteString(circle)
+	sb.WriteString(reset)
+	sb.WriteString(fmt.Sprintf(" %s\t", s.Names[0]))
+	sb.WriteString(fmt.Sprintf("%s\t", s.Status))
+	sb.WriteString(fmt.Sprintf("%s\t", s.Image))
+	fmt.Printf("%s\n", sb.String())
 }
 
 
@@ -161,8 +179,10 @@ func main() {
 
 	remoteSocketPath := "/var/run/docker.sock"
 	for _, dock := range docks{
+		fmt.Printf("--------------------------------------------------\n")
 		fmt.Printf("Dock %s@%s\n", dock.Username, dock.Host)
 		client, err := dock.Connect(privateKeyPath)
+		defer client.Close()
 		if err != nil{
 			fmt.Printf("Could not connect to dock %s, %s\n", dock.Host, err)
 			continue
@@ -172,8 +192,17 @@ func main() {
 			fmt.Printf("Could not GetStatus of Dock %s, %s\n", dock.Host, err)
 			continue
 		}
+		sort.Slice(statuses, func(i, j int) bool {
+			if statuses[i].State == "running"{
+				return true
+			}
+			if statuses[j].State == "running"{
+				return false
+			}
+			return true
+		})
 		for _, s := range statuses{
-			s.Display()
+			s.Display(*showStopped)
 			// dock.GetLogs(client, remoteSocketPath, s.Id)
 		}
 	}

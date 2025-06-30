@@ -18,7 +18,7 @@ Copy keys to server. Add user on server to **docker** group. That's it.
 ## Only nessasary info
 "Is continainer running? What's in the logs?" - this is 2 questions i want to get answers to.
 ## No HTTP server
-User ssh-socket to get the info to the hub. Secure and and easy.
+Simple ssh connections. Secure and and well-known.
 ## Simple alert system
 Telegram bot as an alert system
 

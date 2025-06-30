@@ -63,11 +63,15 @@ type DockInfo struct{
 	Port string
 	Username string
 }
+
+// TODO: should statuses be part of dock?
 type Dock struct{
 	DockInfo DockInfo
 	Client *ssh.Client
 }
 
+
+//TODO: make uptime requests also
 func CreateDock(dockInfo DockInfo, privateKeyPath string) (*Dock, error){
 	key, err := os.ReadFile(privateKeyPath)
 	if err != nil {

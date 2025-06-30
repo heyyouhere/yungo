@@ -51,14 +51,17 @@ func (s *Status) Display(showStopped bool){
 }
 
 
-// TODO this is bad abstraction, rearrange
-type Dock struct{
+type DockInfo struct{
 	Host string
 	Port string
 	Username string
 }
+type Dock struct{
+	DockInfo DockInfo
+	Client *ssh.Client
+}
 
-func (d *Dock) Connect(privateKeyPath string) (*ssh.Client, error){
+func CreateDock(dockInfo DockInfo, privateKeyPath string) (*Dock, error){
 	key, err := os.ReadFile(privateKeyPath)
 	if err != nil {
 		return nil, err
@@ -68,27 +71,25 @@ func (d *Dock) Connect(privateKeyPath string) (*ssh.Client, error){
 		return nil, err
 	}
 
-	config := &ssh.ClientConfig{ User: d.Username,
+	config := &ssh.ClientConfig{
+		User: dockInfo.Username,
 		Auth: []ssh.AuthMethod{
 			ssh.PublicKeys(signer),
 		},
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
 
-	address := fmt.Sprintf("%s:%s", d.Host, d.Port)
+	address := fmt.Sprintf("%s:%s", dockInfo.Host, dockInfo.Port)
 	remoteClient, err := ssh.Dial("tcp", address, config)
 	if err != nil {
 		return nil, err
 	}
-	return remoteClient, err
+	return &Dock{dockInfo, remoteClient}, nil
 }
 
 
-func (d *Dock) GetStatus(remoteClient *ssh.Client, socketPath string) ([]Status, error){
-	// TODO: this is going to be run in a timeout loop,
-	// so it is probably better idea to store remoteConn,
-	// rather than remoteClient
-	remoteConn, err := remoteClient.Dial("unix", socketPath)
+func (d *Dock) GetStatus(socketPath string) ([]Status, error){
+	remoteConn, err := d.Client.Dial("unix", socketPath)
 	defer remoteConn.Close()
 	request := "GET /containers/json?all=true HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
 	_, err = remoteConn.Write([]byte(request))
@@ -181,29 +182,30 @@ func main() {
 	if err != nil{
 		fmt.Printf("Could not read bytes from hosts file\n")
 	}
-	docks := []Dock{}
-	err = json.Unmarshal(hostsBytes, &docks)
+	dockInfos := []DockInfo{}
+	err = json.Unmarshal(hostsBytes, &dockInfos)
 	if err != nil{
 		fmt.Printf("Could not unmarshal, %s", err)
+	}
+	var docks []*Dock
+	for _, dockInfo := range dockInfos{
+		dock, err := CreateDock(dockInfo, privateKeyPath)
+		if err != nil {
+			fmt.Printf("Could not connect to %s, %s", dockInfo.Host, err)
+		}
+		docks = append(docks, dock)
 	}
 
 
 	remoteSocketPath := "/var/run/docker.sock"
 	for _, dock := range docks{
 		if len(target) > 0{
-			if target != dock.Host{ continue }
+			if target != dock.DockInfo.Host{ continue }
 		}
-
-		fmt.Printf("Dock %s@%s\n", dock.Username, dock.Host)
-		client, err := dock.Connect(privateKeyPath)
-		defer client.Close()
+		fmt.Printf("Dock %s@%s\n", dock.DockInfo.Username, dock.DockInfo.Host)
+		statuses, err := dock.GetStatus(remoteSocketPath)
 		if err != nil{
-			fmt.Printf("Could not connect to dock %s, %s\n", dock.Host, err)
-			continue
-		}
-		statuses, err := dock.GetStatus(client, remoteSocketPath)
-		if err != nil{
-			fmt.Printf("Could not GetStatus of Dock %s, %s\n", dock.Host, err)
+			fmt.Printf("Could not GetStatus of Dock %s, %s\n", dock.DockInfo.Host, err)
 			continue
 		}
 		sort.Slice(statuses, func(i, j int) bool {
@@ -213,12 +215,15 @@ func main() {
 			if statuses[j].State == "running"{
 				return false
 			}
-			return len(statuses[i].Names[0]) > len(statuses[i].Names[0])
+			return len(statuses[i].Names[0]) < len(statuses[i].Names[0])
 		})
 		for _, s := range statuses{
 			s.Display(*showStopped)
 			// dock.GetLogs(client, remoteSocketPath, s.Id)
 		}
 		fmt.Printf("--------------------------------------------------\n")
+	}
+	for _, dock := range docks{
+		dock.Client.Close()
 	}
 }

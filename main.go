@@ -10,6 +10,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"flag"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -156,13 +157,17 @@ func (d *Dock) GetLogs(remoteClient *ssh.Client, socketPath string, container_id
 
 
 func main() {
-	// https://docs.docker.com/reference/api/engine/version/v1.39/
-	if len(os.Args) < 2{
+	var (
+		showStopped = flag.Bool("s", false, "Display stopped containers")
+		privateKey = flag.String("k", "", "Path to private key")
+	)
+	flag.Parse()
+	privateKeyPath := *privateKey
+	if len(privateKeyPath) == 0{
 		fmt.Printf("No private key path provided.\n")
-		fmt.Printf("Usage:\n%s [path_to_private_key]\n", os.Args[0])
+		fmt.Printf("Usage:\n%s [OPTIONS] -k PATH/TO/PRIVATE_KEY\n", os.Args[0])
 		os.Exit(1)
 	}
-	privateKeyPath := os.Args[1]
 	hostsFile, err := os.Open("hosts")
 	if err != nil{
 		fmt.Printf("Could not open hosts file\n")

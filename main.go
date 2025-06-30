@@ -214,13 +214,16 @@ func main() {
 			continue
 		}
 		sort.Slice(statuses, func(i, j int) bool {
+			if statuses[i].State == "running" && statuses[j].State == "running"{
+				return len(statuses[i].Names[0]) < len(statuses[j].Names[0])
+			}
 			if statuses[i].State == "running"{
 				return true
 			}
 			if statuses[j].State == "running"{
 				return false
 			}
-			return len(statuses[i].Names[0]) < len(statuses[i].Names[0])
+			return false
 		})
 		for _, s := range statuses{
 			s.Display(*showStopped)

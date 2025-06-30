@@ -185,8 +185,9 @@ func main() {
 	var (
 		hideRunning = flag.Bool("r", false, "Display running containers")
 		showStopped = flag.Bool("s", false, "Display stopped containers")
-		help = flag.Bool("h", false, "Display this message")
+		help = flag.Bool("help", false, "Display this message")
 		privateKey = flag.String("k", fmt.Sprintf("%s/.ssh/id_rsa", home), "Path to private key")
+		hostPath = flag.String("h", fmt.Sprintf("%s/.ssh/hosts", home), "Path to hosts file")
 	)
 	var target string
 	flag.StringVar(&target, "t",  "", "Show only needed targets container")
@@ -203,9 +204,11 @@ func main() {
 		flag.Usage()
 		os.Exit(1)
 	}
-	hostsFile, err := os.Open("hosts")
+	hostsFile, err := os.Open(*hostPath)
 	if err != nil{
 		fmt.Printf("Could not open hosts file\n")
+		flag.Usage()
+		os.Exit(1)
 	}
 	hostsBytes, err := io.ReadAll(hostsFile)
 	if err != nil{

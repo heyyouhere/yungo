@@ -189,8 +189,8 @@ func Run(docks []*Dock, target string, hideRunning bool, showStopped bool) strin
 		if len(target) > 0{
 			if target != dock.DockInfo.Host{ continue }
 		}
-		dock_uptime := dock.GetUptime()
-		sb.WriteString(fmt.Sprintf("Dock %s@%s %s\n", dock.DockInfo.Username, dock.DockInfo.Host, dock_uptime))
+		dock_uptime := dock.GetUptime()[1:]
+		sb.WriteString(fmt.Sprintf("Dock %s@%s\n%s", dock.DockInfo.Username, dock.DockInfo.Host, dock_uptime))
 		statuses, err := dock.GetStatus(remoteSocketPath)
 		if err != nil{
 			sb.WriteString(fmt.Sprintf("Could not GetStatus of Dock %s, %s\n", dock.DockInfo.Host, err))
@@ -259,6 +259,7 @@ func main() {
 		fmt.Printf("Could not unmarshal, %s", err)
 	}
 	var docks []*Dock
+	fmt.Printf("Connecting to %d servers...\n", len(dockInfos))
 	for _, dockInfo := range dockInfos{
 		dock, err := CreateDock(dockInfo, privateKeyPath)
 		if err != nil {
@@ -267,7 +268,7 @@ func main() {
 		docks = append(docks, dock)
 	}
 
-
+	fmt.Printf("Collecting data...\n")
 	if *watch > 0{
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)

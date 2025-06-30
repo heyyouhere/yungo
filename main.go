@@ -30,7 +30,7 @@ func clearScreen() {
     fmt.Printf("\033[2J\033[H");
 }
 
-func (s *Status) Display(showStopped bool){
+func (s *Status) Display(hideRunning bool, showStopped bool){
 	var sb strings.Builder
 	const (
 		red   = "\033[31m" // Red color
@@ -39,6 +39,9 @@ func (s *Status) Display(showStopped bool){
 		reset = "\033[0m"  // Reset to default color
 	)
 	if s.State == "running"{
+		if hideRunning{
+			return
+		}
 		sb.WriteString(green)
 	} else {
 		if !showStopped{
@@ -164,6 +167,7 @@ func (d *Dock) GetLogs(remoteClient *ssh.Client, socketPath string, container_id
 func main() {
 	home := os.Getenv("HOME")
 	var (
+		hideRunning = flag.Bool("r", false, "Display stopped containers")
 		showStopped = flag.Bool("s", false, "Display stopped containers")
 		privateKey = flag.String("k", fmt.Sprintf("%s/.ssh/id_rsa", home), "Path to private key")
 	)
@@ -226,7 +230,7 @@ func main() {
 			return false
 		})
 		for _, s := range statuses{
-			s.Display(*showStopped)
+			s.Display(*hideRunning, *showStopped)
 			// dock.GetLogs(client, remoteSocketPath, s.Id)
 		}
 		fmt.Printf("--------------------------------------------------\n")

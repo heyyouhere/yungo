@@ -2,6 +2,8 @@ package main
 
 import (
 	"bufio"
+	"syscall"
+	"os/signal"
 	"bytes"
 	"encoding/json"
 	"flag"
@@ -11,6 +13,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -30,7 +33,7 @@ func clearScreen() {
     fmt.Printf("\033[2J\033[H");
 }
 
-func (s *Status) Display(hideRunning bool, showStopped bool){
+func (s *Status) Display(hideRunning bool, showStopped bool) string{
 	var sb strings.Builder
 	const (
 		red   = "\033[31m" // Red color
@@ -40,12 +43,12 @@ func (s *Status) Display(hideRunning bool, showStopped bool){
 	)
 	if s.State == "running"{
 		if hideRunning{
-			return
+			return ""
 		}
 		sb.WriteString(green)
 	} else {
 		if !showStopped{
-			return
+			return ""
 		}
 		sb.WriteString(red)
 	}
@@ -54,7 +57,8 @@ func (s *Status) Display(hideRunning bool, showStopped bool){
 	sb.WriteString(fmt.Sprintf(" %s\t", s.Names[0]))
 	sb.WriteString(fmt.Sprintf("%s\t", s.Status))
 	sb.WriteString(fmt.Sprintf("%s\t", s.Image))
-	fmt.Printf("%s\n", sb.String())
+	sb.WriteString("\n")
+	return sb.String()
 }
 
 
@@ -178,6 +182,40 @@ func (d *Dock) GetLogs(remoteClient *ssh.Client, socketPath string, container_id
 	return nil
 }
 
+func Run(docks []*Dock, target string, hideRunning bool, showStopped bool) string{
+	remoteSocketPath := "/var/run/docker.sock"
+	var sb strings.Builder
+	for _, dock := range docks{
+		if len(target) > 0{
+			if target != dock.DockInfo.Host{ continue }
+		}
+		dock_uptime := dock.GetUptime()
+		sb.WriteString(fmt.Sprintf("Dock %s@%s %s\n", dock.DockInfo.Username, dock.DockInfo.Host, dock_uptime))
+		statuses, err := dock.GetStatus(remoteSocketPath)
+		if err != nil{
+			sb.WriteString(fmt.Sprintf("Could not GetStatus of Dock %s, %s\n", dock.DockInfo.Host, err))
+			continue
+		}
+		sort.Slice(statuses, func(i, j int) bool {
+			if statuses[i].State == "running" && statuses[j].State == "running"{
+				return len(statuses[i].Names[0]) < len(statuses[j].Names[0])
+			}
+			if statuses[i].State == "running"{
+				return true
+			}
+			if statuses[j].State == "running"{
+				return false
+			}
+			return false
+		})
+		for _, s := range statuses{
+			sb.WriteString(fmt.Sprintf("%s", s.Display(hideRunning, showStopped)))
+			// dock.GetLogs(client, remoteSocketPath, s.Id)
+		}
+		sb.WriteString("--------------------------------------------------\n")
+	}
+	return sb.String()
+}
 
 
 func main() {
@@ -188,6 +226,7 @@ func main() {
 		help = flag.Bool("help", false, "Display this message")
 		privateKey = flag.String("k", fmt.Sprintf("%s/.ssh/id_rsa", home), "Path to private key")
 		hostPath = flag.String("h", fmt.Sprintf("%s/.ssh/hosts", home), "Path to hosts file")
+		watch = flag.Uint("watch", 0, "Path to hosts file")
 	)
 	var target string
 	flag.StringVar(&target, "t",  "", "Show only needed targets container")
@@ -229,38 +268,33 @@ func main() {
 	}
 
 
-	remoteSocketPath := "/var/run/docker.sock"
-	clearScreen()
-	for _, dock := range docks{
-		if len(target) > 0{
-			if target != dock.DockInfo.Host{ continue }
-		}
-		dock_uptime := dock.GetUptime()
-		fmt.Printf("Dock %s@%s %s\n", dock.DockInfo.Username, dock.DockInfo.Host, dock_uptime)
-		statuses, err := dock.GetStatus(remoteSocketPath)
-		if err != nil{
-			fmt.Printf("Could not GetStatus of Dock %s, %s\n", dock.DockInfo.Host, err)
-			continue
-		}
-		sort.Slice(statuses, func(i, j int) bool {
-			if statuses[i].State == "running" && statuses[j].State == "running"{
-				return len(statuses[i].Names[0]) < len(statuses[j].Names[0])
+	if *watch > 0{
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+		go func(){
+			for {
+				sleepTime := *watch
+				result := Run(docks, target, *hideRunning, *showStopped)
+				clearScreen()
+				fmt.Printf("Watch %d sec\n", sleepTime)
+				fmt.Printf("%s", result)
+				fmt.Printf("<C-c> to exit.")
+				time.Sleep(time.Second * time.Duration(sleepTime))
+			}}()
+			sig := <-sigChan
+			fmt.Printf("\nReceived signal: %s. Shutting down...\n", sig)
+			for _, dock := range docks{
+				dock.Client.Close()
 			}
-			if statuses[i].State == "running"{
-				return true
-			}
-			if statuses[j].State == "running"{
-				return false
-			}
-			return false
-		})
-		for _, s := range statuses{
-			s.Display(*hideRunning, *showStopped)
-			// dock.GetLogs(client, remoteSocketPath, s.Id)
+			fmt.Println("Exiting program.")
+	} else {
+		result := Run(docks, target, *hideRunning, *showStopped)
+		clearScreen()
+		fmt.Printf("%s", result)
+		for _, dock := range docks{
+			dock.Client.Close()
 		}
-		fmt.Printf("--------------------------------------------------\n")
 	}
-	for _, dock := range docks{
-		dock.Client.Close()
-	}
+
 }

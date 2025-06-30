@@ -167,8 +167,9 @@ func (d *Dock) GetLogs(remoteClient *ssh.Client, socketPath string, container_id
 func main() {
 	home := os.Getenv("HOME")
 	var (
-		hideRunning = flag.Bool("r", false, "Display stopped containers")
+		hideRunning = flag.Bool("r", false, "Display running containers")
 		showStopped = flag.Bool("s", false, "Display stopped containers")
+		help = flag.Bool("h", false, "Display this message")
 		privateKey = flag.String("k", fmt.Sprintf("%s/.ssh/id_rsa", home), "Path to private key")
 	)
 	var target string
@@ -176,6 +177,10 @@ func main() {
 	flag.StringVar(&target, "target",  "", "Show only needed targets container")
 
 	flag.Parse()
+	if *help{
+		flag.Usage()
+		os.Exit(1)
+	}
 	privateKeyPath := *privateKey
 	if len(privateKeyPath) == 0{
 		fmt.Printf("No private key path provided.\n")

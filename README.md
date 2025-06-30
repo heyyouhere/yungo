@@ -14,7 +14,7 @@ curl --unix-socket /tmp/local_socket http://localhost/containers/json | jq
 
 # Planned features:
 ## Easy install
-Make a simple curl requsts to install monitoring to a system.
+Copy keys to server. Add user on server to **docker** group. That's it.
 ## Only nessasary info
 "Is continainer running? What's in the logs?" - this is 2 questions i want to get answers to.
 ## No HTTP server

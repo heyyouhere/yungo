@@ -26,6 +26,10 @@ type Status struct{
 
 }
 
+func clearScreen() {
+    fmt.Printf("\033[2J\033[H");
+}
+
 func (s *Status) Display(showStopped bool){
 	var sb strings.Builder
 	const (
@@ -198,6 +202,7 @@ func main() {
 
 
 	remoteSocketPath := "/var/run/docker.sock"
+	clearScreen()
 	for _, dock := range docks{
 		if len(target) > 0{
 			if target != dock.DockInfo.Host{ continue }

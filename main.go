@@ -226,7 +226,7 @@ func main() {
 		help = flag.Bool("help", false, "Display this message")
 		privateKey = flag.String("k", fmt.Sprintf("%s/.ssh/id_rsa", home), "Path to private key")
 		hostPath = flag.String("h", fmt.Sprintf("%s/.ssh/hosts", home), "Path to hosts file")
-		watch = flag.Uint("watch", 0, "Path to hosts file")
+		watch = flag.Uint("watch", 0, "Watch mode, secods between updates")
 	)
 	var target string
 	flag.StringVar(&target, "t",  "", "Show only needed targets container")

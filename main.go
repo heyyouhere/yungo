@@ -101,7 +101,7 @@ func CreateDock(dockInfo DockInfo, privateKeyPath string) (*Dock, error){
 	return &Dock{dockInfo, remoteClient}, nil
 }
 
-func (d *Dock) GetUptime() string{
+func (d *Dock) runCommand(command string) string{
 	session, err := d.Client.NewSession()
 	if err != nil {
 		fmt.Printf("failed to create session: %v", err)
@@ -109,7 +109,7 @@ func (d *Dock) GetUptime() string{
 	defer session.Close()
 
 	var b []byte
-	if b, err = session.CombinedOutput("uptime"); err != nil {
+	if b, err = session.CombinedOutput(command); err != nil {
 		fmt.Printf("failed to run: %v", err)
 	}
 	return string(b)
@@ -189,8 +189,9 @@ func Run(docks []*Dock, target string, hideRunning bool, showStopped bool) strin
 		if len(target) > 0{
 			if target != dock.DockInfo.Host{ continue }
 		}
-		dock_uptime := dock.GetUptime()[1:]
-		sb.WriteString(fmt.Sprintf("Dock %s@%s\n%s", dock.DockInfo.Username, dock.DockInfo.Host, dock_uptime))
+		memory := dock.runCommand(`free -hm | awk 'NR==2{printf "%s/%s", $3, $2}'`)
+		dock_uptime := dock.runCommand("uptime")[1:]
+		sb.WriteString(fmt.Sprintf("Dock %s@%s [%s]\n%s", dock.DockInfo.Username, dock.DockInfo.Host, memory, dock_uptime))
 		statuses, err := dock.GetStatus(remoteSocketPath)
 		if err != nil{
 			sb.WriteString(fmt.Sprintf("Could not GetStatus of Dock %s, %s\n", dock.DockInfo.Host, err))
@@ -284,6 +285,7 @@ func main() {
 				time.Sleep(time.Second * time.Duration(sleepTime))
 			}}()
 			sig := <-sigChan
+			// TODO: there is a bug when exiting that nil dereference somewhere
 			fmt.Printf("\nReceived signal: %s. Shutting down...\n", sig)
 			for _, dock := range docks{
 				dock.Client.Close()

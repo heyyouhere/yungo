@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"sort"
@@ -62,21 +61,76 @@ func (s *Status) Display(hideRunning bool, showStopped bool) string{
 }
 
 
-type DockInfo struct{
-	Host string
+type Host struct{
+	HostName string
 	Port string
-	Username string
+	User string
+	IdentityFile string
+}
+
+func ParseSSHConfig(filePath string, privateKeyPath string, hosts *[]Host) error {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	var currentHost *Host
+	scanner := bufio.NewScanner(file)
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		parts := strings.Fields(line)
+		if len(parts) == 2{
+			switch parts[0] {
+			case "Host":
+				if currentHost != nil{
+					if len(currentHost.IdentityFile) == 0{
+						currentHost.IdentityFile = privateKeyPath
+					}
+					*hosts = append(*hosts, *currentHost)
+				}
+				currentHost = &Host{}
+			case "HostName":
+				currentHost.HostName = parts[1]
+			case "User":
+				currentHost.User = parts[1]
+			case "Port":
+				currentHost.Port = parts[1]
+			case "IdentityFile":
+				currentHost.IdentityFile = parts[1]
+			}
+		} else {
+			return fmt.Errorf("Unexpected line in %s", filePath)
+		}
+	}
+
+	if currentHost != nil{
+		if len(currentHost.IdentityFile) == 0{
+			currentHost.IdentityFile = privateKeyPath
+		}
+		*hosts = append(*hosts, *currentHost)
+	}
+
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+	return nil
 }
 
 // TODO: should statuses be part of dock?
 type Dock struct{
-	DockInfo DockInfo
+	Host Host
 	Client *ssh.Client
 }
 
 
-func CreateDock(dockInfo DockInfo, privateKeyPath string) (*Dock, error){
-	key, err := os.ReadFile(privateKeyPath)
+func CreateDock(host Host) (*Dock, error){
+	key, err := os.ReadFile(host.IdentityFile)
 	if err != nil {
 		return nil, err
 	}
@@ -86,19 +140,19 @@ func CreateDock(dockInfo DockInfo, privateKeyPath string) (*Dock, error){
 	}
 
 	config := &ssh.ClientConfig{
-		User: dockInfo.Username,
+		User: host.User,
 		Auth: []ssh.AuthMethod{
 			ssh.PublicKeys(signer),
 		},
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
 
-	address := fmt.Sprintf("%s:%s", dockInfo.Host, dockInfo.Port)
+	address := fmt.Sprintf("%s:%s", host.HostName, host.Port)
 	remoteClient, err := ssh.Dial("tcp", address, config)
 	if err != nil {
 		return nil, err
 	}
-	return &Dock{dockInfo, remoteClient}, nil
+	return &Dock{host, remoteClient}, nil
 }
 
 func (d *Dock) runCommand(command string) string{
@@ -117,13 +171,16 @@ func (d *Dock) runCommand(command string) string{
 
 func (d *Dock) GetStatus(socketPath string) ([]Status, error){
 	remoteConn, err := d.Client.Dial("unix", socketPath)
+	if err != nil{
+		fmt.Printf("Could not esstablish connection with: %s\n", socketPath)
+	}
 	defer remoteConn.Close()
 	request := "GET /containers/json?all=true HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
 	_, err = remoteConn.Write([]byte(request))
 	if err != nil {
 		return nil, err
 	}
-	buf := make([]byte, 1024*1024*1024)
+	buf := make([]byte, 1024*1024)
 	_, err = remoteConn.Read(buf)
 	if err != nil {
 		return nil, err
@@ -149,15 +206,17 @@ func (d *Dock) GetLogs(remoteClient *ssh.Client, socketPath string, container_id
 	// TODO: this function does not return logs, since the endpoint writes as
 	// Content-Type: application/vnd.docker.multiplexed-stream
 	// And I dont know how to handle it in golang
-
 	remoteConn, err := remoteClient.Dial("unix", socketPath)
+	if err != nil{
+		fmt.Printf("Could not esstablish connection with: %s\n", socketPath)
+	}
 	defer remoteConn.Close()
 	request := fmt.Sprintf("GET /containers/%s/logs?stdout=true&tail=40 HTTP/1.1\r\nHost: localhost\r\n\r\n", container_id)
 	_, err = remoteConn.Write([]byte(request))
 	if err != nil {
 		return err
 	}
-	buf := make([]byte, 1024*1024)
+	buf := make([]byte, 1024*1024*1024)
 	n, err := remoteConn.Read(buf)
 	if err != nil {
 		return err
@@ -187,14 +246,14 @@ func Run(docks []*Dock, target string, hideRunning bool, showStopped bool) strin
 	var sb strings.Builder
 	for _, dock := range docks{
 		if len(target) > 0{
-			if target != dock.DockInfo.Host{ continue }
+			if target != dock.Host.HostName{ continue }
 		}
 		memory := dock.runCommand(`free -hm | awk 'NR==2{printf "%s/%s", $3, $2}'`)
 		dock_uptime := dock.runCommand("uptime")[1:]
-		sb.WriteString(fmt.Sprintf("Dock %s@%s [%s]\n%s", dock.DockInfo.Username, dock.DockInfo.Host, memory, dock_uptime))
+		sb.WriteString(fmt.Sprintf("Dock %s@%s [%s]\n%s", dock.Host.User, dock.Host.HostName, memory, dock_uptime))
 		statuses, err := dock.GetStatus(remoteSocketPath)
 		if err != nil{
-			sb.WriteString(fmt.Sprintf("Could not GetStatus of Dock %s, %s\n", dock.DockInfo.Host, err))
+			sb.WriteString(fmt.Sprintf("Could not GetStatus of Dock %s, %s\n", dock.Host.HostName, err))
 			continue
 		}
 		sort.Slice(statuses, func(i, j int) bool {
@@ -224,9 +283,9 @@ func main() {
 	var (
 		hideRunning = flag.Bool("r", false, "Display running containers")
 		showStopped = flag.Bool("s", false, "Display stopped containers")
-		help = flag.Bool("help", false, "Display this message")
+		help = flag.Bool("help", false, "Displa+1y this message")
 		privateKey = flag.String("k", fmt.Sprintf("%s/.ssh/id_rsa", home), "Path to private key")
-		hostPath = flag.String("h", fmt.Sprintf("%s/.ssh/hosts", home), "Path to hosts file")
+		hostPath = flag.String("h", fmt.Sprintf("%s/.ssh/config", home), "Path to config file")
 		watch = flag.Uint("watch", 0, "Watch mode, secods between updates")
 	)
 	var target string
@@ -244,27 +303,25 @@ func main() {
 		flag.Usage()
 		os.Exit(1)
 	}
-	hostsFile, err := os.Open(*hostPath)
+	hosts := []Host{}
+	err := ParseSSHConfig(*hostPath, privateKeyPath, &hosts)
+
 	if err != nil{
-		fmt.Printf("Could not open hosts file\n")
-		flag.Usage()
+		fmt.Printf("Could not parse %s, because of %s\n", *hostPath, err)
 		os.Exit(1)
 	}
-	hostsBytes, err := io.ReadAll(hostsFile)
-	if err != nil{
-		fmt.Printf("Could not read bytes from hosts file\n")
+	fmt.Printf("Parsed hosted file: %d\n", len(hosts))
+	for index, host := range hosts{
+		fmt.Printf("   %d. %s@%s\n", index+1, host.User, host.HostName)
 	}
-	dockInfos := []DockInfo{}
-	err = json.Unmarshal(hostsBytes, &dockInfos)
-	if err != nil{
-		fmt.Printf("Could not unmarshal, %s", err)
-	}
+
+
 	var docks []*Dock
-	fmt.Printf("Connecting to %d servers...\n", len(dockInfos))
-	for _, dockInfo := range dockInfos{
-		dock, err := CreateDock(dockInfo, privateKeyPath)
+	fmt.Printf("Connecting to %d servers...\n", len(hosts))
+	for _, host := range hosts{
+		dock, err := CreateDock(host)
 		if err != nil {
-			fmt.Printf("Could not connect to %s, %s", dockInfo.Host, err)
+			fmt.Printf("Could not connect to %s, %s", host.HostName, err)
 		}
 		docks = append(docks, dock)
 	}
